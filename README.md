@@ -44,8 +44,13 @@ Then open http://localhost:8765. `npm test` checks the helpers.
 
 ## Good to know
 
-- **Transcription** uses the browser's built-in speech recognition. On Chrome that audio goes to Google,
-  on Safari to Apple. The recording itself only goes to your Supabase bucket. Firefox has no transcription.
+- **Voice notes** have no time limit. Pause and Resume work mid-recording, the screen stays awake while
+  recording, and if the phone locks or another app takes the mic, everything said up to then is kept.
+  An unbanked recording survives a reload. There is no live transcript: the browser's speech recognition
+  cut iPhone recordings off after about a minute, so it was removed. Old transcripts still show and are searchable.
+- **Entry date**: "Entry for" defaults to the journal day, and anything before 4 am counts as the day before
+  (`DAY_STARTS_AT` in `logic.js`). Pick any past date before banking, or tap the date on a banked entry to move it.
+  Streak, week grid and day filter all use this date.
 - **Offline**: everything you add is saved on the device first and syncs when you're back online.
   Media made on another device downloads the first time you view it online.
 - **Updates**: after you redeploy, the new version shows on the second open (the first open is served from cache).

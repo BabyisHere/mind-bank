@@ -1,11 +1,11 @@
 // App shell: serve from cache instantly, refresh in the background (new code shows on the next open).
 // Fonts and pinned CDN modules: cache first, their URLs never change. Supabase data always goes to the network.
-const CACHE = 'mindbank-v1';
+const CACHE = 'mindbank-v2';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'logic.js', 'config.js', 'manifest.webmanifest', 'icon.svg'];
 const CDN = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdn.jsdelivr.net'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())));
 
 self.addEventListener('fetch', e => {
   const u = new URL(e.request.url);

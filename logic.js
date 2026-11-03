@@ -15,10 +15,20 @@ export const shiftDay = (key, n) => {
   return dayKey(new Date(y, m - 1, d + n));
 };
 
+// The journal day: before this hour, you are still writing about yesterday.
+export const DAY_STARTS_AT = 4;
+export const journalDay = (now = new Date()) => {
+  const x = new Date(now);
+  return x.getHours() < DAY_STARTS_AT ? shiftDay(dayKey(x), -1) : dayKey(x);
+};
+
+// The day an entry belongs to: the date you chose when banking, else the day it was saved.
+export const entryDay = r => r.data.day || dayKey(r.data.created_at);
+
 // Consecutive days with an entry. Today without an entry yet does not break it.
 export function streak(entries, now = new Date()) {
-  const days = new Set(entries.map(e => dayKey(e.data.created_at)));
-  let k = dayKey(now);
+  const days = new Set(entries.map(entryDay));
+  let k = journalDay(now);
   if (!days.has(k)) k = shiftDay(k, -1);
   let n = 0;
   while (days.has(k)) { n++; k = shiftDay(k, -1); }
@@ -27,8 +37,9 @@ export function streak(entries, now = new Date()) {
 
 // Monday-to-Sunday day keys for the week containing `now`.
 export function weekDays(now = new Date()) {
-  const today = dayKey(now);
-  const monday = shiftDay(today, -((new Date(now).getDay() + 6) % 7));
+  const today = journalDay(now);
+  const [y, m, d] = today.split('-').map(Number);
+  const monday = shiftDay(today, -((new Date(y, m - 1, d).getDay() + 6) % 7));
   return Array.from({ length: 7 }, (_, i) => shiftDay(monday, i));
 }
 

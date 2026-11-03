@@ -115,6 +115,11 @@ textarea { resize: vertical; line-height: 32px; padding-block: 0; background: tr
 .rec[aria-pressed=true] { background: var(--red); color: var(--card); }
 .rec[aria-pressed=true] .i { animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: .2; } }
+.entry-for { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.entry-for input[type=date] { width: auto; flex: 0 1 190px; min-width: 0; }
+.entry-day-name { font-weight: 700; }
+.entry-head input.entry-date { width: auto; flex: 0 0 auto; border: 0; border-bottom: 2px dashed currentColor; box-shadow: none; background: transparent; padding: 0 2px; font: inherit; font-weight: 700; color: inherit; min-height: 32px; }
+.written { font-size: .8rem; opacity: .75; }
 .rec-time { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.5em; }
 .rec-preview { display: flex; align-items: center; gap: 8px; flex: 1 1 240px; min-width: 0; }
 .photo-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; }

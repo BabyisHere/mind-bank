@@ -47,7 +47,7 @@
       <label class="search" for="q">
         <svg class="i" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
         <span class="sr-only">Search tasks and entries</span>
-        <input id="q" type="search" placeholder="search words, #tag, mood, transcript" autocomplete="off">
+        <input id="q" type="search" placeholder="search words, #tag, mood" autocomplete="off">
       </label>
       <div class="days" role="group" aria-label="Browse by day">
         <button id="day-prev" class="btn icon-btn" type="button" aria-label="Previous day"><svg class="i" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
@@ -82,10 +82,17 @@
         <button id="new-prompt" class="btn btn-ghost" type="button">New prompt</button>
       </div>
 
+      <div class="entry-for">
+        <label for="entry-day" class="small-label">entry for</label>
+        <input id="entry-day" type="date">
+        <span id="entry-day-name" class="entry-day-name"></span>
+      </div>
+
       <div class="rec-row">
         <button id="rec" class="btn rec" type="button" aria-pressed="false">
           <svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Record</span>
         </button>
+        <button id="rec-pause" class="btn" type="button" hidden>Pause</button>
         <span id="rec-time" class="rec-time" role="timer" aria-label="Recording time">0:00</span>
         <div id="rec-preview" class="rec-preview" hidden>
           <button class="btn icon-btn" type="button" data-play="draft" aria-label="Play recording"></button>
@@ -93,9 +100,6 @@
           <button id="rec-discard" class="btn icon-btn" type="button" aria-label="Discard recording"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
         </div>
       </div>
-      <label id="transcript-label" for="transcript" class="small-label" hidden>transcript (edit if it misheard you)</label>
-      <textarea id="transcript" rows="3" hidden></textarea>
-
       <label for="entry-text" class="sr-only">Write freely</label>
       <textarea id="entry-text" rows="5" placeholder="just write. any #word becomes a tag."></textarea>
 

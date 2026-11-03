@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mind Bank</title>
+<meta name="theme-color" content="#1A1612">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Instrument+Serif:ital@1&display=swap">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+
+<div id="lock" class="lock" hidden>
+  <form id="lock-form" class="card lock-card">
+    <p class="eyebrow">private property</p>
+    <h2>LOCKED</h2>
+    <label for="lock-email">Email</label>
+    <input id="lock-email" type="email" autocomplete="username" required>
+    <label for="lock-pass">Password</label>
+    <input id="lock-pass" type="password" autocomplete="current-password" required>
+    <button class="btn btn-red" type="submit">Open the bank</button>
+    <p id="lock-msg" class="msg" role="alert"></p>
+  </form>
+</div>
+
+<header class="top">
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">Manasseh's notebook</p>
+      <h1>MIND BANK</h1>
+    </div>
+    <div class="top-actions">
+      <p id="status" class="status" aria-live="polite"></p>
+      <button id="export" class="btn" type="button"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v12M6 10l6 6 6-6M4 20h16"/></svg>Export all</button>
+      <button id="signout" class="btn btn-ghost" type="button" hidden>Sign out</button>
+    </div>
+  </div>
+
+  <section class="card bank" aria-label="The bank: search and recall">
+    <div class="bank-row">
+      <label class="search" for="q">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+        <span class="sr-only">Search tasks and entries</span>
+        <input id="q" type="search" placeholder="search words, #tag, mood, transcript" autocomplete="off">
+      </label>
+      <div class="days" role="group" aria-label="Browse by day">
+        <button id="day-prev" class="btn icon-btn" type="button" aria-label="Previous day"><svg class="i" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <input id="day" type="date" aria-label="Show one day">
+        <button id="day-next" class="btn icon-btn" type="button" aria-label="Next day"><svg class="i" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+        <button id="day-all" class="btn" type="button">All days</button>
+      </div>
+    </div>
+    <div id="tags" class="tags"></div>
+  </section>
+</header>
+
+<main class="grid">
+  <section class="card col" aria-labelledby="h-todo">
+    <p class="eyebrow">things to do</p>
+    <h2 id="h-todo">DO IT</h2>
+    <form id="task-form" class="task-form">
+      <label for="task-input" class="sr-only">New task</label>
+      <input id="task-input" placeholder="something to do..." autocomplete="off">
+      <button class="btn" type="submit">Add</button>
+    </form>
+    <p id="task-count" class="count"></p>
+    <ul id="tasks" class="tasks"></ul>
+  </section>
+
+  <section class="col journal" aria-labelledby="h-say">
+    <div class="card composer">
+      <p class="eyebrow">dear diary</p>
+      <h2 id="h-say">SAY IT</h2>
+      <div class="prompt">
+        <p id="prompt"></p>
+        <button id="new-prompt" class="btn btn-ghost" type="button">New prompt</button>
+      </div>
+
+      <div class="rec-row">
+        <button id="rec" class="btn rec" type="button" aria-pressed="false">
+          <svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Record</span>
+        </button>
+        <span id="rec-time" class="rec-time" role="timer" aria-label="Recording time">0:00</span>
+        <div id="rec-preview" class="rec-preview" hidden>
+          <button class="btn icon-btn" type="button" data-play="draft" aria-label="Play recording"></button>
+          <div class="wave" data-wave="draft"></div>
+          <button id="rec-discard" class="btn icon-btn" type="button" aria-label="Discard recording"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+      </div>
+      <label id="transcript-label" for="transcript" class="small-label" hidden>transcript (edit if it misheard you)</label>
+      <textarea id="transcript" rows="3" hidden></textarea>
+
+      <label for="entry-text" class="sr-only">Write freely</label>
+      <textarea id="entry-text" rows="5" placeholder="just write. any #word becomes a tag."></textarea>
+
+      <div class="photo-row">
+        <button id="add-photo" class="btn" type="button"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/></svg>Add photos</button>
+        <input id="photo-input" type="file" accept="image/*" multiple hidden>
+        <div id="photo-preview" class="polaroids"></div>
+      </div>
+
+      <fieldset class="moods">
+        <legend class="small-label">mood</legend>
+        <div id="moods" class="mood-list"></div>
+      </fieldset>
+
+      <button id="bank" class="btn btn-red big" type="button">Bank it</button>
+      <p id="composer-msg" class="msg" role="status"></p>
+    </div>
+
+    <h3 id="entries-title" class="entries-title"></h3>
+    <div id="entries" class="entries"></div>
+    <button id="more" class="btn" type="button" hidden>Show older</button>
+  </section>
+
+  <section class="card col" aria-labelledby="h-streak">
+    <p class="eyebrow">this week</p>
+    <h2 id="h-streak">STREAK</h2>
+    <p class="streak"><span id="streak-n" class="streak-n">0</span><span id="streak-label">days in a row</span></p>
+    <div id="week" class="week"></div>
+    <dl id="totals" class="totals"></dl>
+  </section>
+</main>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import { MOODS, tagsOf, dayKey, shiftDay, streak, weekDays, matches, peaks, takeRemote, mediaPaths, fmtDuration } from './logic.js';
+import { MOODS, tagsOf, dayKey, shiftDay, streak, weekDays, matches, peaks, takeRemote, mediaPaths, fmtDuration, journalDay, entryDay } from './logic.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
 const $ = s => document.querySelector(s);
@@ -184,7 +184,7 @@ $('#signout').addEventListener('click', async () => {
 });
 
 // ---------- state ----------
-const ui = { q: '', day: null, limit: 30, prompt: PROMPTS[Math.floor(Date.now() / 864e5) % PROMPTS.length] };
+const ui = { entryDayPicked: false, q: '', day: null, limit: 30, prompt: PROMPTS[Math.floor(Date.now() / 864e5) % PROMPTS.length] };
 const draft = { photos: [], audio: null, mood: null };
 
 // ---------- render ----------
@@ -193,11 +193,13 @@ function waveHTML(peaksArr) { return peaksArr.map(p => `<i style="height:${Math.
 const fmtDay = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: new Date().getFullYear() === y ? undefined : 'numeric' }); };
 
 function entryHTML(r) {
-  const d = r.data, t = new Date(d.created_at);
-  const time = `${fmtDay(dayKey(t))} · ${t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  const d = r.data, t = new Date(d.created_at), day = entryDay(r);
+  const clock = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const written = dayKey(t) !== day ? `<span class="written">written ${esc(fmtDay(dayKey(t)))}, ${esc(clock)}</span>` : `<span class="written">${esc(clock)}</span>`;
   return `<article class="card entry">
     <header class="entry-head">
-      <time datetime="${esc(d.created_at)}">${esc(time)}</time>
+      <input class="entry-date" type="date" data-move="${r.id}" value="${day}" max="${dayKey(new Date())}" aria-label="Entry date, tap to change">
+      ${written}
       <span class="chip kind">${d.audio ? 'voice' : 'note'}</span>
       ${d.mood ? `<span class="chip">${esc(d.mood)}</span>` : ''}
       <button class="btn icon-btn btn-ghost del" type="button" data-del-entry="${r.id}" aria-label="Delete entry">${ICON.x}</button>
@@ -236,8 +238,8 @@ function render() {
     || '<span class="empty">Tags show up here. Write #something in an entry.</span>';
 
   // entries
-  const shown = entries.filter(r => matches(r, ui.q) && (!ui.day || dayKey(r.data.created_at) === ui.day))
-    .sort((a, b) => b.data.created_at.localeCompare(a.data.created_at));
+  const shown = entries.filter(r => matches(r, ui.q) && (!ui.day || entryDay(r) === ui.day))
+    .sort((a, b) => entryDay(b).localeCompare(entryDay(a)) || b.data.created_at.localeCompare(a.data.created_at));
   $('#day').value = ui.day || '';
   $('#entries-title').textContent = (ui.day ? fmtDay(ui.day) : 'everything banked') + (ui.q ? ` matching "${ui.q}"` : '') + ` (${shown.length})`;
   $('#entries').innerHTML = shown.slice(0, ui.limit).map(entryHTML).join('')
@@ -251,8 +253,8 @@ function render() {
   $('#streak-n').textContent = n;
   $('#streak-label').textContent = n === 1 ? 'day in a row' : 'days in a row';
   const perDay = {};
-  for (const r of entries) { const k = dayKey(r.data.created_at); perDay[k] = (perDay[k] || 0) + 1; }
-  const today = dayKey(new Date());
+  for (const r of entries) { const k = entryDay(r); perDay[k] = (perDay[k] || 0) + 1; }
+  const today = journalDay();
   $('#week').innerHTML = weekDays().map(k => {
     const c = perDay[k] || 0, label = new Date(k + 'T12:00').toLocaleDateString([], { weekday: 'short' });
     return `<button type="button" data-day="${k}" data-l="${Math.min(c, 3)}" class="${k === today ? 'today' : ''}" aria-pressed="${ui.day === k}" aria-label="${fmtDay(k)}: ${c} ${c === 1 ? 'entry' : 'entries'}"><b>${label.slice(0, 2)}</b><span></span></button>`;
@@ -303,32 +305,47 @@ async function togglePlay(id) {
 }
 
 // ---------- recording ----------
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const rec = { mr: null, sr: null, tick: null, start: 0, levels: [], ac: null };
+// No live transcript: browser speech recognition grabs the microphone on iPhone and cut recordings off after about a minute.
+// No time limit. Pause/resume, screen kept awake, and anything recorded is kept if the phone locks or the mic is taken.
+const rec = { mr: null, stream: null, tick: null, start: 0, pausedMs: 0, pauseAt: 0, levels: [], ac: null, wl: null, stopNote: '' };
+const recording = () => rec.mr && rec.mr.state !== 'inactive';
+const elapsed = () => Math.max(0, (Date.now() - rec.start - rec.pausedMs - (rec.mr?.state === 'paused' ? Date.now() - rec.pauseAt : 0)) / 1000);
+
+async function keepAwake() {
+  try { rec.wl = await navigator.wakeLock?.request('screen'); } catch { rec.wl = null; }
+}
 
 async function startRec() {
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return flash('This browser cannot record audio.');
   let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  try { stream = rec.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
   catch { return flash('Microphone blocked. Allow it for this site in your browser settings, then try again.'); }
   discardAudio();
   // AAC in mp4 first: it plays on iPhone and Android/desktop alike
   const mime = ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find(m => MediaRecorder.isTypeSupported(m));
   const mr = rec.mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
   const chunks = [];
-  rec.levels = [];
+  rec.levels = []; rec.pausedMs = 0; rec.stopNote = '';
   mr.ondataavailable = e => e.data.size && chunks.push(e.data);
   mr.onstop = () => {
+    const duration = elapsed();
     stream.getTracks().forEach(t => t.stop());
     rec.ac?.close();
     clearInterval(rec.tick);
+    rec.wl?.release?.().catch(() => {}); rec.wl = null;
+    rec.mr = null;
+    $('#rec-pause').hidden = true;
+    if (!chunks.length) { setRecButton(false); return flash('Nothing was recorded. Try again.'); }
     const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
-    draft.audio = { blob, url: URL.createObjectURL(blob), duration: (Date.now() - rec.start) / 1000, peaks: peaks(rec.levels) };
-    $('#rec-preview').hidden = false;
-    $('[data-wave="draft"]').innerHTML = waveHTML(draft.audio.peaks);
-    paintButtons();
+    setDraftAudio({ blob, duration, peaks: peaks(rec.levels) });
+    persistDraftAudio();
     setRecButton(false);
+    if (rec.stopNote) flash(rec.stopNote);
   };
+  // if the phone locks, a call comes in or another app takes the mic, keep what was said so far
+  stream.getAudioTracks().forEach(t => t.addEventListener('ended', () => {
+    if (recording()) { rec.stopNote = 'Recording stopped because the microphone was interrupted. Everything up to that point is kept.'; stopRec(); }
+  }));
   try {
     rec.ac = new AudioContext();
     const an = rec.ac.createAnalyser();
@@ -339,49 +356,71 @@ async function startRec() {
   } catch { rec.read = () => 0.5; }
   rec.start = Date.now();
   rec.tick = setInterval(() => {
+    if (rec.mr?.state !== 'recording') return;
     rec.levels.push(rec.read());
-    $('#rec-time').textContent = fmtDuration((Date.now() - rec.start) / 1000);
+    $('#rec-time').textContent = fmtDuration(elapsed());
   }, 100);
   mr.start(1000);
+  keepAwake();
+  $('#rec-pause').hidden = false;
+  $('#rec-pause').textContent = 'Pause';
   setRecButton(true);
-  startTranscribe();
 }
 function stopRec() {
-  const sr = rec.sr; rec.sr = null; sr?.stop();
-  rec.mr?.state === 'recording' && rec.mr.stop();
+  if (!recording()) return;
+  if (rec.mr.state === 'paused') { rec.pausedMs += Date.now() - rec.pauseAt; rec.pauseAt = Date.now(); }
+  rec.mr.stop();
 }
+function togglePause() {
+  if (!recording()) return;
+  if (rec.mr.state === 'recording') {
+    rec.mr.pause(); rec.pauseAt = Date.now();
+    $('#rec-pause').textContent = 'Resume';
+    $('#rec').querySelector('span').textContent = 'Stop (paused)';
+  } else {
+    rec.pausedMs += Date.now() - rec.pauseAt;
+    rec.mr.resume();
+    $('#rec-pause').textContent = 'Pause';
+    setRecButton(true);
+  }
+}
+let replaceArmed = false, replaceTimer;
 function setRecButton(on) {
   const b = $('#rec');
   b.setAttribute('aria-pressed', on);
+  replaceArmed = false;
   b.innerHTML = on ? `${ICON.stop}<span>Stop</span>` : `${ICON.mic}<span>${draft.audio ? 'Record again' : 'Record'}</span>`;
 }
-// Browser speech recognition: on Chrome this sends audio to Google, on Safari to Apple. Skipped where unsupported.
-function startTranscribe() {
-  if (!SR) return;
-  const sr = rec.sr = new SR();
-  sr.continuous = true;
-  sr.interimResults = true;
-  sr.lang = navigator.language || 'en-GB';
-  const box = $('#transcript');
-  let base = box.value ? box.value + ' ' : '';
-  $('#transcript').hidden = $('#transcript-label').hidden = false;
-  sr.onresult = e => {
-    let interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) base += e.results[i][0].transcript.trim() + ' ';
-      else interim += e.results[i][0].transcript;
-    }
-    box.value = (base + interim).trim();
-  };
-  // Chrome ends recognition after a pause; restart while still recording
-  sr.onend = () => { if (rec.sr === sr) try { sr.start(); } catch { /* already running */ } };
-  sr.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') rec.sr = null; };
-  try { sr.start(); } catch { rec.sr = null; }
+function onRecClick() {
+  if (recording()) return stopRec();
+  // a second recording replaces the first, so ask once before throwing a long recording away
+  if (draft.audio && !replaceArmed) {
+    replaceArmed = true;
+    $('#rec').querySelector('span').textContent = 'Tap again to replace';
+    clearTimeout(replaceTimer);
+    replaceTimer = setTimeout(() => !recording() && setRecButton(false), 3000);
+    return;
+  }
+  startRec();
+}
+function setDraftAudio(a) {
+  if (draft.audio) URL.revokeObjectURL(draft.audio.url);
+  draft.audio = { ...a, url: URL.createObjectURL(a.blob) };
+  $('#rec-preview').hidden = false;
+  $('[data-wave="draft"]').innerHTML = waveHTML(draft.audio.peaks);
+  $('#rec-time').textContent = fmtDuration(draft.audio.duration);
+  paintButtons();
+}
+// an unbanked recording survives a reload or the app being closed
+function persistDraftAudio() {
+  const a = draft.audio;
+  idb.put('meta', a ? { blob: a.blob, duration: a.duration, peaks: a.peaks } : null, 'draftAudio').catch(() => {});
 }
 function discardAudio() {
   if (player.id === 'draft') { audioEl.pause(); player.id = null; }
   if (draft.audio) URL.revokeObjectURL(draft.audio.url);
   draft.audio = null;
+  persistDraftAudio();
   $('#rec-preview').hidden = true;
   $('#rec-time').textContent = '0:00';
   setRecButton(false);
@@ -408,9 +447,11 @@ let flashTimer;
 function flash(msg) { $('#composer-msg').textContent = msg; clearTimeout(flashTimer); flashTimer = setTimeout(() => $('#composer-msg').textContent = '', 5000); }
 
 async function bankIt() {
-  if (rec.mr?.state === 'recording') stopRec(), await new Promise(r => setTimeout(r, 300));
-  const text = $('#entry-text').value.trim(), transcript = $('#transcript').value.trim();
-  if (!text && !transcript && !draft.audio && !draft.photos.length) return flash('Say, write or add a photo first.');
+  if (recording()) { stopRec(); for (let i = 0; i < 30 && recording(); i++) await new Promise(r => setTimeout(r, 100)); await new Promise(r => setTimeout(r, 100)); }
+  const text = $('#entry-text').value.trim();
+  if (!text && !draft.audio && !draft.photos.length) return flash('Say, write or add a photo first.');
+  const day = $('#entry-day').value || journalDay();
+  if (day > dayKey(new Date())) return flash('That date is in the future. Pick today or earlier.');
   const btn = $('#bank');
   btn.disabled = true;
   try {
@@ -429,18 +470,20 @@ async function bankIt() {
       urls.set(path, p.url);
       photos.push(path);
     }
-    await save({ id, kind: 'entry', deleted: false, data: { created_at: new Date().toISOString(), mood: draft.mood, prompt: ui.prompt, text, transcript, tags: tagsOf(text), audio, photos } });
+    await save({ id, kind: 'entry', deleted: false, data: { created_at: new Date().toISOString(), day, mood: draft.mood, prompt: ui.prompt, text, tags: tagsOf(text), audio, photos } });
     if (player.id === 'draft') { audioEl.pause(); player.id = null; }
     draft.audio = null; draft.photos = []; draft.mood = null;
-    $('#entry-text').value = $('#transcript').value = '';
-    $('#transcript').hidden = $('#transcript-label').hidden = true;
+    persistDraftAudio();
+    $('#entry-text').value = '';
+    ui.entryDayPicked = false;
+    setEntryDay();
     $('#rec-preview').hidden = true;
     $('#rec-time').textContent = '0:00';
     document.querySelectorAll('[name=mood]').forEach(r => r.checked = false);
     setRecButton(false);
     renderDraftPhotos();
     try { localStorage.removeItem('mb-draft'); } catch { /* storage blocked */ }
-    flash('Banked.');
+    flash(`Banked under ${fmtDay(day)}.`);
   } catch (e) {
     flash('Could not save: ' + (e.message || e) + '. Your entry is still here.');
   } finally { btn.disabled = false; }
@@ -452,7 +495,7 @@ async function exportAll() {
   btn.disabled = true;
   try {
     const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
-    const zip = new JSZip(), entries = live('entry').sort((a, b) => a.data.created_at.localeCompare(b.data.created_at)), tasks = live('task');
+    const zip = new JSZip(), entries = live('entry').sort((a, b) => entryDay(a).localeCompare(entryDay(b)) || a.data.created_at.localeCompare(b.data.created_at)), tasks = live('task');
     let missing = 0;
     for (const r of entries) for (const p of mediaPaths(r.data)) {
       const b = await mediaBlob(p);
@@ -461,7 +504,7 @@ async function exportAll() {
     zip.file('mind-bank.json', JSON.stringify({ exported_at: new Date().toISOString(), tasks: tasks.map(r => ({ id: r.id, ...r.data })), entries: entries.map(r => ({ id: r.id, ...r.data })) }, null, 2));
     zip.file('journal.txt', entries.map(r => {
       const d = r.data;
-      return [`== ${new Date(d.created_at).toLocaleString()}${d.mood ? ' · ' + d.mood : ''}`, d.prompt && `> ${d.prompt}`, d.transcript && `[said] ${d.transcript}`, d.text,
+      return [`== ${fmtDay(entryDay(r))} (written ${new Date(d.created_at).toLocaleString()})${d.mood ? ' · ' + d.mood : ''}`, d.prompt && `> ${d.prompt}`, d.transcript && `[said] ${d.transcript}`, d.text,
         ...mediaPaths(d).map(p => `[file] media/${p}`)].filter(Boolean).join('\n');
     }).join('\n\n') + '\n\nTASKS\n' + tasks.map(r => `[${r.data.done ? 'x' : ' '}] ${r.data.text}`).join('\n'));
     const blob = await zip.generateAsync({ type: 'blob' });
@@ -482,8 +525,32 @@ $('#task-form').addEventListener('submit', e => {
   save({ id: crypto.randomUUID(), kind: 'task', deleted: false, data: { text, done: false, created_at: new Date().toISOString(), tags: tagsOf(text) } });
   $('#task-input').value = '';
 });
-$('#rec').addEventListener('click', () => rec.mr?.state === 'recording' ? stopRec() : startRec());
-$('#rec-discard').addEventListener('click', () => { discardAudio(); $('#transcript').value = ''; $('#transcript').hidden = $('#transcript-label').hidden = true; });
+$('#rec').addEventListener('click', onRecClick);
+$('#rec-pause').addEventListener('click', togglePause);
+$('#rec-discard').addEventListener('click', discardAudio);
+
+// entry date: defaults to the journal day (before 4 am counts as yesterday); you can pick any past date
+function setEntryDay() {
+  const el = $('#entry-day');
+  el.max = dayKey(new Date());
+  if (!ui.entryDayPicked) el.value = journalDay();
+  $('#entry-day-name').textContent = el.value ? fmtDay(el.value) : '';
+}
+$('#entry-day').addEventListener('change', e => {
+  if (!e.target.value) { ui.entryDayPicked = false; return setEntryDay(); }
+  if (e.target.value > dayKey(new Date())) { flash('Pick today or an earlier date.'); ui.entryDayPicked = false; return setEntryDay(); }
+  ui.entryDayPicked = true;
+  setEntryDay();
+});
+// move an already-banked entry to another date
+document.addEventListener('change', e => {
+  const t = e.target.closest('input[data-move]');
+  if (!t) return;
+  const r = rows.get(t.dataset.move);
+  if (!r || !t.value || t.value > dayKey(new Date())) { t.value = r ? entryDay(r) : ''; return flash('Pick today or an earlier date.'); }
+  save({ ...r, data: { ...r.data, day: t.value } });
+  flash(`Moved to ${fmtDay(t.value)}.`);
+});
 $('#add-photo').addEventListener('click', () => $('#photo-input').click());
 $('#photo-input').addEventListener('change', async e => {
   for (const f of e.target.files) { const blob = await shrink(f); draft.photos.push({ blob, url: URL.createObjectURL(blob) }); }
@@ -504,8 +571,8 @@ $('#new-prompt').addEventListener('click', () => {
 });
 $('#q').addEventListener('input', e => { ui.q = e.target.value.trim(); ui.limit = 30; render(); });
 $('#day').addEventListener('change', e => { ui.day = e.target.value || null; ui.limit = 30; render(); });
-$('#day-prev').addEventListener('click', () => { ui.day = shiftDay(ui.day || dayKey(new Date()), ui.day ? -1 : 0); render(); });
-$('#day-next').addEventListener('click', () => { ui.day = shiftDay(ui.day || dayKey(new Date()), ui.day ? 1 : 0); render(); });
+$('#day-prev').addEventListener('click', () => { ui.day = shiftDay(ui.day || journalDay(), ui.day ? -1 : 0); render(); });
+$('#day-next').addEventListener('click', () => { ui.day = shiftDay(ui.day || journalDay(), ui.day ? 1 : 0); render(); });
 $('#day-all').addEventListener('click', () => { ui.day = null; render(); });
 $('#more').addEventListener('click', () => { ui.limit += 30; render(); });
 $('#export').addEventListener('click', exportAll);
@@ -548,7 +615,17 @@ document.addEventListener('click', e => {
 
 window.addEventListener('online', sync);
 window.addEventListener('offline', idleStatus);
-document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && sync());
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    sync();
+    setEntryDay();
+    if (recording()) keepAwake(); // the screen lock is released while the app is in the background
+  } else if (recording() && matchMedia('(pointer: coarse)').matches) {
+    // phones pause the microphone in the background; stop cleanly so nothing said so far is lost
+    rec.stopNote = 'Recording stopped when you left the app. Everything up to that point is kept.';
+    stopRec();
+  }
+});
 setInterval(() => document.visibilityState === 'visible' && sync(), 60000);
 
 // ---------- boot ----------
@@ -558,5 +635,7 @@ try { $('#entry-text').value = localStorage.getItem('mb-draft') || ''; } catch {
 navigator.storage?.persist?.();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 for (const r of await idb.all('items')) rows.set(r.id, r);
+setEntryDay();
+try { const a = await idb.get('meta', 'draftAudio'); if (a?.blob) setDraftAudio(a), setRecButton(false); } catch { /* nothing saved */ }
 render();
 initRemote();

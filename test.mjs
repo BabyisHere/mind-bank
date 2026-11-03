@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { tagsOf, streak, weekDays, matches, peaks, takeRemote, shiftDay, fmtDuration } from './logic.js';
+import { tagsOf, streak, weekDays, matches, peaks, takeRemote, shiftDay, fmtDuration, journalDay, entryDay } from './logic.js';
 
 assert.deepEqual(tagsOf('slept badly #Work and #work, #family-time. not#this? yes #this'), ['work', 'family-time', 'this']);
 
@@ -27,6 +27,17 @@ assert.ok(takeRemote(undefined, { updated_at: '2026-01-01T00:00:00Z' }));
 assert.ok(!takeRemote({ updated_at: '2026-01-02T00:00:00.000Z' }, { updated_at: '2026-01-01T00:00:00+00:00' }));
 assert.ok(takeRemote({ updated_at: '2026-01-01T00:00:00.000Z' }, { updated_at: '2026-01-01T00:00:00+00:00' }));
 
+// journal day: 00:32 on Wed 4 Nov still belongs to Tue 3 Nov; 04:00 starts the new day
+assert.equal(journalDay(new Date(2026, 10, 4, 0, 32)), '2026-11-03');
+assert.equal(journalDay(new Date(2026, 10, 4, 4, 0)), '2026-11-04');
+assert.equal(journalDay(new Date(2026, 10, 1, 1)), '2026-10-31', 'crosses month');
+assert.equal(entryDay({ data: { day: '2026-11-03', created_at: new Date(2026, 10, 4, 0, 32).toISOString() } }), '2026-11-03');
+assert.equal(entryDay(at(2026, 11, 2)), '2026-11-02', 'old entries without a day use the save date');
+const lateNight = new Date(2026, 10, 4, 0, 40);
+assert.equal(streak([{ data: { day: '2026-11-03', created_at: lateNight.toISOString() } }, at(2026, 11, 2)], lateNight), 2, 'entry banked after midnight for Tuesday counts for Tuesday');
+assert.equal(weekDays(lateNight)[1], '2026-11-03');
+
 assert.equal(fmtDuration(65), '1:05');
+assert.equal(fmtDuration(1800), '30:00');
 assert.equal(fmtDuration(3725), '1h 2m');
 console.log('logic ok');
